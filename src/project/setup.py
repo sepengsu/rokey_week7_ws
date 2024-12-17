@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'gui = project.gui:main',
             'conveyor = project.conveyor_node:main',
+            'world_cam = project.world_cam:main',
         ],
     },
 )

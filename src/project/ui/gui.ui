@@ -172,22 +172,6 @@
      </item>
     </layout>
    </widget>
-   <widget class="QGraphicsView" name="word_cam">
-    <property name="geometry">
-     <rect>
-      <x>9</x>
-      <y>9</y>
-      <width>391</width>
-      <height>341</height>
-     </rect>
-    </property>
-    <property name="minimumSize">
-     <size>
-      <width>391</width>
-      <height>341</height>
-     </size>
-    </property>
-   </widget>
    <widget class="QLabel" name="convey_system_log">
     <property name="geometry">
      <rect>
@@ -199,6 +183,19 @@
     </property>
     <property name="text">
      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p align=&quot;center&quot;&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Convey System 없음 &lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="world_cam">
+    <property name="geometry">
+     <rect>
+      <x>0</x>
+      <y>0</y>
+      <width>371</width>
+      <height>271</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>image</string>
     </property>
    </widget>
   </widget>

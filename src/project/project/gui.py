@@ -5,8 +5,10 @@ from std_msgs.msg import Int32, String
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
 from PyQt5.uic import loadUi
 from PyQt5.QtCore import pyqtSignal, QThread
-import sys
+import sys, cv2, numpy as np
 from project.gui_node import GUINode
+from PyQt5.QtWidgets import QApplication, QMainWindow
+from PyQt5.QtGui import QImage, QPixmap
 class ROSNodeThread(QThread):
     """
     ROS 노드를 별도의 QThread에서 실행.
@@ -83,7 +85,17 @@ class GUI(QMainWindow):
 
     def update_gui(self):
         self.convey_system_log.setText('Conveyor Status: {}'.format(self.node.conveyor_status))
+        if self.node.world_cam is not None:
+            image_rgb = cv2.cvtColor(self.node.world_cam, cv2.COLOR_BGR2RGB)
+            height, width, channel = image_rgb.shape
 
+            # NumPy 배열을 QImage로 변환
+            bytes_per_line = 3 * width
+            qimage = QImage(image_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
+
+            # QImage를 QPixmap으로 변환 후 QLabel에 표시
+            pixmap = QPixmap.fromImage(qimage)
+            self.world_cam.setPixmap(pixmap)
 def main(args=None):
     rclpy.init(args=args)
     from PyQt5.QtCore import Qt
