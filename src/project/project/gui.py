@@ -9,6 +9,7 @@ import sys, cv2, numpy as np
 from project.gui_node import GUINode
 from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtGui import QImage, QPixmap
+
 class ROSNodeThread(QThread):
     """
     ROS 노드를 별도의 QThread에서 실행.
@@ -50,6 +51,12 @@ class GUI(QMainWindow):
         ui_path = '/home/jaenote/rokey_week7_ws/src/project/ui/gui.ui'
         loadUi(ui_path, self)
         self.setWindowTitle('GUI')
+        self.initing()
+    
+    def initing(self):
+        self.is_play = False
+        self.is_pause = False
+        self.is_stop = False
 
     def funtion_button(self):
         '''
@@ -65,7 +72,7 @@ class GUI(QMainWindow):
         self.stop_button.clicked.connect(self.stop)
         self.play_button.clicked.connect(self.play)
         self.stop_reset_button.clicked.connect(self.stop_reset)
-        self.pause_resume_button.clicked.connect(self.pause_resume)
+        self.pause_resume_button.clicked.connect(self.pause)
     
     def forward(self):
         self.node.pub_to_conveyor(1)
@@ -76,14 +83,42 @@ class GUI(QMainWindow):
     def stop(self):
         self.node.pub_to_conveyor(0)
 
-    def play(self):
-        pass
-    def stop_reset(self):
-        pass
-    def pause_resume(self):
-        pass
 
+    def play(self):
+        text = self.play_button.text()
+        is_change = self.node.pub_to_robot_state('play')
+        if is_change:
+            if text == '시작':
+                self.play_button.setText('재시작')
+            elif text == '재시작':
+                self.play_button.setText('시작')
+        
+    def stop_reset(self):
+        text = self.stop_reset_button.text()
+        if text == '정지':
+            output = 'stop'
+        elif text == '초기화':
+            output = 'reset'
+        is_change = self.node.pub_to_robot_state(output)
+        if is_change:
+            if text == '정지':
+                self.stop_reset_button.setText('초기화')
+            elif text == '초기화':
+                self.stop_reset_button.setText('정지')
+            if self.play_button.text() == '재시작':
+                self.play_button.setText('시작')
+
+    def pause(self):
+        text = self.pause_resume_button.text()
+        is_pause = self.node.pub_to_robot_state('pause')
+        if is_pause:
+            if self.play_button.text() == '시작':
+                self.play_button.setText('재시작')
     def update_gui(self):
+        '''
+        wolrd_cam: 월드 카메라 이미지 업데이트
+        크기: world_cam_label 크기에 맞게 조정
+        '''
         self.convey_system_log.setText('Conveyor Status: {}'.format(self.node.conveyor_status))
         if self.node.world_cam is not None:
             image_rgb = cv2.cvtColor(self.node.world_cam, cv2.COLOR_BGR2RGB)
@@ -93,9 +128,12 @@ class GUI(QMainWindow):
             bytes_per_line = 3 * width
             qimage = QImage(image_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
 
+            # 이미지를 QLabel에 표시하기 위해 resize
+            qimage = qimage.scaled(self.world_cam.width(), self.world_cam.height())
             # QImage를 QPixmap으로 변환 후 QLabel에 표시
             pixmap = QPixmap.fromImage(qimage)
             self.world_cam.setPixmap(pixmap)
+
 def main(args=None):
     rclpy.init(args=args)
     from PyQt5.QtCore import Qt

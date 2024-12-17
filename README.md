@@ -1,5 +1,9 @@
 # rokey_week5_ws
-5주차 프로젝트 
+7주차 프로젝트 
+
+
+## 강사님 github 
+https://github.com/karlkwon/spark_x_F
 
 #### 자기의 branch로 바꾸기
 ```

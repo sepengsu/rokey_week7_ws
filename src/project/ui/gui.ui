@@ -124,7 +124,7 @@
         </size>
        </property>
        <property name="text">
-        <string>Pause</string>
+        <string>일시정지</string>
        </property>
       </widget>
      </item>
@@ -137,7 +137,7 @@
         </size>
        </property>
        <property name="text">
-        <string>Stop</string>
+        <string>정지</string>
        </property>
       </widget>
      </item>
@@ -150,7 +150,7 @@
         </size>
        </property>
        <property name="text">
-        <string>Play</string>
+        <string>시작</string>
        </property>
       </widget>
      </item>
