@@ -5,6 +5,13 @@
 ## 강사님 github 
 https://github.com/karlkwon/spark_x_F
 
+![alt text](image.png)
+
+## 각자 배정된 브랜치 이름 
+재원: jaewon 
+차훈: chahoon
+근제: geunje
+
 #### 자기의 branch로 바꾸기
 ```
 git checkout ~~~
