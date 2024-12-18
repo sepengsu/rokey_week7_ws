@@ -63,3 +63,23 @@ git log --oneline
 ```
 git checkout ~~~
 ```
+
+
+#### 각자 branch에서 main을 가져다가 사용하기 
+
+1. 자기 자신의 branch로 변경 
+```
+git checkout <branch-name>
+
+```
+
+2. 만약에 충돌 발생시 강제로 가져오기 
+```
+git fetch origin main
+git reset --hard origin/main
+```
+
+#### 항상 branch의 default를 자신의 브랜치로 변경 
+```
+git branch --set-upstream-to=origin/<branch-name>
+```
