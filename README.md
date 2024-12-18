@@ -1,4 +1,4 @@
-# rokey_week5_ws
+# rokey_week7_ws
 7주차 프로젝트 
 
 
