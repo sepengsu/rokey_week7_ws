@@ -27,7 +27,11 @@ r1 = 130
 r2 = 124
 r3 = 150
 
-
+POSE_DICT= {
+    'Yolo_Box_Detect': [110,0,130],
+    'Convey_Detect':[0,240,0], # 컨베이어 place 위치
+    'puple_box_detect':[110,0.0,0.130], 
+}
 th1_offset = - math.atan2(0.024, 0.128)
 th2_offset = - 0.5*math.pi - th1_offset
 
@@ -211,13 +215,18 @@ class ControllerTower(Node):
     def process(self):
         self.cmd_vel = self.create_publisher(Twist, '/cmd_vel', 10)
         self.process1()
+        self.get_logger().info('process1 done')
         self.process2()
+        self.get_logger().info('process2 done')
         self.process3()
+        self.get_logger().info('process3 done')
         self.process4()
-        self.process5()
-        self.process6()
+        self.get_logger().info('process4 done')
+        self.get_logger().info('process6 done')
         self.process7()
+        self.get_logger().info('process7 done')
         self.process8()
+        self.get_logger().info('process8 done')
     
     def stop(self):
         move = Twist()
@@ -235,12 +244,12 @@ class ControllerTower(Node):
         self.cmd_vel.publish(move)
         self.get_logger().info('Go Back')
     
-    def pose_to_detect(self):
+    def pose(self, x, y, z):
         '''
-        로봇의 위치를 인식하기 위한 함수
+        로봇의 x,y,z 좌표를 받아서 로봇의 팔을 움직임
         '''
 
-        Sxy, sr1, sr2, sr3, St, Rt = solv_robot_arm2(110, 0, 130, r1, r2, r3)
+        Sxy, sr1, sr2, sr3, St, Rt = solv_robot_arm2(x, y, z, r1, r2, r3)
         self.trajectory_msg = JointTrajectory()
 
         current_time = self.get_clock().now()
@@ -270,7 +279,7 @@ class ControllerTower(Node):
         if z == 0.20:
             self.stop()
             self.joint_pub = self.create_publisher(JointTrajectory, '/arm_controller/joint_trajectory', 10)
-            self.pose_to_detect()
+            self.pose(POSE_DICT[1][0], POSE_DICT[1][1], POSE_DICT[1][2])
         elif z > 0.20:
             self.go_front()
         elif z< 0.2:
