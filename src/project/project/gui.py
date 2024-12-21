@@ -8,6 +8,9 @@ from PyQt5.QtGui import QImage, QPixmap
 from project.gui_node import GUINode
 import cv2
 import sys
+from ament_index_python import get_package_share_directory
+dirname = get_package_share_directory('project')
+ui_path = os.path.join(dirname, 'ui', 'gui.ui')
 
 
 class ROSNodeThread(QThread):
@@ -47,7 +50,6 @@ class GUI(QMainWindow):
         self.init_buttons()
 
     def init_ui(self):
-        ui_path = "/home/jaenote/rokey_week7_ws/src/project/ui/gui.ui"
         loadUi(ui_path, self)
         self.setWindowTitle("GUI")
         self.initing()
