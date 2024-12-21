@@ -14,6 +14,8 @@ setup(
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
         ('share/' + package_name + '/rviz', glob('ui/*.ui')),
+        ('share/' + package_name + '/params', glob('params/*.npz')),
+        ('share/' + package_name + '/yolo', glob('yolo/*.pt')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -27,6 +29,7 @@ setup(
             'gui = project.gui:main',
             'conveyor = project.conveyor_node:main',
             'world_cam = project.world_cam:main',
+            'controlltower = project.controlltower_node:main',
         ],
     },
 )

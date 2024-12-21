@@ -31,12 +31,13 @@ class ImagePublisher(Node):
         self.cap.set(cv2.CAP_PROP_FPS, 25)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        self.image = None
         
         print(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH), self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     def publish_image(self):
         # 카메라에서 한 프레임 읽기
-        ret, frame = self.cap.read()
+        ret, frame = self.cap.read() # frame: BGR 이미지
 
         if ret:
             # OpenCV 이미지 (BGR)을 JPEG로 압축
@@ -53,6 +54,15 @@ class ImagePublisher(Node):
             # CompressedImage 퍼블리시
             self.publisher_.publish(msg)
             self.get_logger().info('Publishing compressed image...')
+            self.image = frame
+
+
+    def __del__(self):
+        self.cap.release()
+    
+    def get_R_T_matrix(self):
+        pass 
+
 
 
 def main(args=None):

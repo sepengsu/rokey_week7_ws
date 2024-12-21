@@ -1,3 +1,9 @@
 install/
 log/
 build/
+temp/
+test_images/
+images/*.jpg
+*images*/
+*.jpg
+.vscode/
