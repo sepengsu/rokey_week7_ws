@@ -7,3 +7,10 @@ images/*.jpg
 *images*/
 *.jpg
 .vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pywz
