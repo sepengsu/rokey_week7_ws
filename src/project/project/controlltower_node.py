@@ -185,11 +185,6 @@ class ControllerTower(Node):
                 self.left_3_position = position[0]
             elif types == 'front_1':
                 self.front_1_position = position[0]
-        print('Robot Position: ',self.robot_position)
-        print('Left 1 Position: ',self.left_1_position)
-        print('Left 2 Position: ',self.left_2_position)
-        print('Left 3 Position: ',self.left_3_position)
-        print('Front 1 Position: ',self.front_1_position)
 
 
     def robot_image_callback(self, msg: CompressedImage):
