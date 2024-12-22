@@ -572,7 +572,6 @@ class ControllerTower(Node):
         
         '''
         pass
-    
     def process6(self):
         pass
     def process7(self):
