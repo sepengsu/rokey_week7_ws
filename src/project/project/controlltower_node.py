@@ -31,7 +31,72 @@ POSE_DICT= {
     'place' : [0,240,0], # 박스를 놓을 위치
     'look': [10,0,130] # 박스를 보기위한 위치
 }
+class PointtoPose():
+    def __init__(self):
+        '''
+        point(x,y,z)를 받아서 로봇의 팔의 각도로 변환 
+        '''
+        self.j1_z_offset = 77
+        self.r1 = 130
+        self.r2 = 124
+        self.r3 = 150
 
+    def __call__(self, x, y, z):
+        pose_msg = self.pose(x, y, z)
+        return pose_msg
+
+    def solv2(self):
+        r1 = self.r1
+        r2 = self.r2
+        r3 = self.r3
+        d1 = (r3**2 - r2**2 + r1**2) / (2*r3)
+        d2 = (r3**2 + r2**2 - r1**2) / (2*r3)
+
+        s1 = math.acos(d1 / r1)
+        s2 = math.acos(d2 / r2)
+
+        return s1, s2
+    
+    def solv_robot_arm2(self, x, y, z):
+        z = z + self.r3 - self.j1_z_offset
+
+        Rt = math.sqrt(x**2 + y**2 + z**2)
+        Rxy = math.sqrt(x**2 + y**2)
+        St = math.asin(z / Rt)
+        Sxy = math.atan2(y, x)
+
+        s1, s2 = self.solv2()
+
+        sr1 = math.pi/2 - (s1 + St)
+        sr2 = s1 + s2
+        sr2_ = sr1 + sr2
+        sr3 = math.pi - sr2_
+
+        return Sxy, sr1, sr2, sr3, St, Rt
+    
+    def pose(self, x, y, z):
+        '''
+        로봇의 x,y,z 좌표를 받아서 로봇의 팔을 움직임
+        '''
+        Sxy, sr1, sr2, sr3, St, Rt = self.solv_robot_arm2(x, y, z)
+        self.trajectory_msg = JointTrajectory()
+
+        current_time = self.get_clock().now()
+        self.trajectory_msg.header = Header()
+
+        self.trajectory_msg.header.frame_id = ''
+        self.trajectory_msg.joint_names = ['joint1', 'joint2', 'joint3', 'joint4']
+
+        point = JointTrajectoryPoint()
+        point.positions = [Sxy, sr1, sr2, sr3]
+        point.velocities = [0.0] * 4
+        point.accelerations = [0.0] * 4
+        point.time_from_start.sec = 0
+        point.time_from_start.nanosec = 500
+
+        self.trajectory_msg.points = [point]
+        return self.trajectory_msg # 메시지 반환
+    
 class YoloPose():
     def __init__(self,K, real_size):
         '''
