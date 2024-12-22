@@ -5,12 +5,14 @@ from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import CompressedImage # CompressedImage 메시지 타입 임포트 
 from geometry_msgs.msg import Point # Point 메시지 타입 임포트 
 from std_msgs.msg import String # String 메시지 타입 임포트
-import math
+import math, time
 from PyQt5.QtCore import QThread
 from PyQt5.QtCore import pyqtSignal
 from geometry_msgs.msg import Twist
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from std_msgs.msg import Header
+from rclpy.action import ActionClient
+from control_msgs.action import GripperCommand
 path = get_package_share_directory('project') # 패키지의 경로를 가져옴
 
 world_para = np.load(os.path.join(path,'params','world_calib.npz')) # 세계 카메라의 파라미터
@@ -193,7 +195,7 @@ def get_pose(frame, parameters):
 
     return frame, ids, tvecs
 
-
+'''
 base_to_grip = 17.5*0.01
 base_to_cam = 22*0.01
 cam_to_grip = 7*0.01 # x축
@@ -203,6 +205,7 @@ base_to_box = 101*0.001
 
 delta_z = base_to_cam - base_to_box
 delta_x = -cam_to_grip 
+'''
 
 class ControllerTower(Node):
     
@@ -211,15 +214,24 @@ class ControllerTower(Node):
 
         self.images_pubs()
         self.points_pubs()
+        self.controller_pubs()
+        self.yolo_init()
         # self.command_pubs()
         # self.status_subs()
         self.process()
 
     def yolo_init(self):
         self.yolo_pose = YoloPose(ROBOT_PARAMETERS['mtx'], ROBOT_PARAMETERS['box_size']) # yolo pose 객체 생성
-        self.boxes_sub = self.create_subscription(String, '/yolo/boxes', self.boxes_callback, QoSProfile(depth=10))
-        self.boxes_list = []
-        self.clss_list = []
+        self.boxes_sub = self.create_subscription(String, '/robot/yolo_boxes', self.boxes_callback, QoSProfile(depth=5))
+        self.clss_sub = self.create_subscription(String, '/robot/yolo_clss', self.clss_callback, QoSProfile(depth=5))
+        self.boxes_list = None
+        self.clss_list = None
+    
+    def controller_pubs(self):
+        self.joint_pub = self.create_publisher(JointTrajectory, '/arm_controller/joint_trajectory', 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.gripper_action_client = ActionClient(self, GripperCommand, 'gripper_controller/gripper_cmd')
+        self.case = 1
 
     def images_pubs(self):
         self.world_cam_sub = self.create_subscription(CompressedImage, '/world/compressed_image', self.world_cam_callback, QoSProfile(depth=10))
@@ -238,6 +250,8 @@ class ControllerTower(Node):
 
     def conveyor_pubs(self):
         self.conveyor_cmd_pubs = self.create_publisher(String, '/conveyor/cmd', QoSProfile(depth=10))
+
+
     def command_pubs(self):
         self.robot_command_pubs = self.create_publisher(String, '/robot/command', QoSProfile(depth=10))
         self.conveyor_command_pubs = self.create_publisher(String, '/conveyor/command', QoSProfile(depth=10))
@@ -253,7 +267,30 @@ class ControllerTower(Node):
     
     def command_subs(self):
         self.gui_command_sub = self.create_subscription(String, '/gui/command', self.gui_command_callback, QoSProfile(depth=10))
+        self.box_dict = None
+        self.goal_id = None
 
+    def gui_command_callback(self, msg: String):
+        '''
+        GUI로부터 명령을 받아서 처리하는 콜백 함수
+        형식: 
+        {red:n, blue:m}, {id}
+        '''
+        command = msg.data.split(',')
+        box_command = command[0]
+        box_dict = {box.split(':')[0]: int(box.split(':')[1]) for box in box_command.split()} # 박스 명령을 딕셔너리로 변환
+        self.box_dict = box_dict
+        self.goal_id = int(command[1])
+
+    def boxes_callback(self, msg: String):
+        self.boxes_list = msg.data.split(',')
+        self.boxes = [list(map(int, box.split())) for box in self.boxes_list]
+    
+    def clss_callback(self, msg: String):
+        self.clss_list = msg.data.split(',')
+        self.clss = [clss for clss in self.clss_list]
+        clss_dict = {0: 'blue', 1: 'purple', 2: 'red'}
+        self.clss = [clss_dict[int(clss)] for clss in self.clss_list] # 클래스 번호를 클래스 이름으로 변환
 
     def world_cam_callback(self, msg: CompressedImage):
         '''
@@ -300,7 +337,6 @@ class ControllerTower(Node):
         if tvecs is None or ids is None:
             self.get_logger().info('No markers found')
             return
-        print(ids)
         for mark_id , position in zip(ids, tvecs):
             types = ID_DICT[mark_id[0]]
             if types == 'front_1':
@@ -310,31 +346,39 @@ class ControllerTower(Node):
     def stop(self):
         move = Twist()
         move.linear.x = 0
-        self.cmd_vel.publish(move)
+        self.cmd_vel_pub.publish(move)
         self.get_logger().info('Stop')
     def go_front(self):
         move = Twist()
         move.linear.x = 0.1
-        self.cmd_vel.publish(move)
+        self.cmd_vel_pub.publish(move)
         self.get_logger().info('Go Front')
     def go_back(self):
         move = Twist()
         move.linear.x = -0.1
-        self.cmd_vel.publish(move)
+        self.cmd_vel_pub.publish(move)
         self.get_logger().info('Go Back')
-    
-    def pose(self, x, y, z):
-        '''
-        로봇의 x,y,z 좌표를 받아서 로봇의 팔을 움직임
-        '''
-        pose = PointToPose()
-        self.trajectory_msg = pose.pose(x, y, z)
-        self.joint_pub.publish(self.trajectory_msg)
+    def pose(self, pose):
+        self.joint_pub.publish(pose)
         self.get_logger().info('Pose Done')
-
+    def send_gripper_goal(self, position):
+            goal = GripperCommand.Goal()
+            goal.command.position = position
+            goal.command.max_effort = -1.0
+            if not self.gripper_action_client.wait_for_server(timeout_sec=1.0):
+                self.get_logger().error("Gripper action server not available!")
+                return
+            self.gripper_action_client.send_goal_async(goal)
+    def grip(self):
+        self.send_gripper_goal(-0.015)
+        self.get_logger().info('Grip Done')
+    def ungrip(self):
+        self.send_gripper_goal(0.01)
+        self.get_logger().info('Ungrip Done')
+        
 
     def process(self):
-        self.cmd_vel = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.count = 0
         self.process1()
         self.get_logger().info('process1 done')
         self.process2()
@@ -355,13 +399,20 @@ class ControllerTower(Node):
         2. 해당 위칭 알면 정지 후 pose
         '''
         if self.robot_front_1_position is None:
+            if self.count < 5:
+                self.count += 1
+                time.sleep(1)
+                return
             self.get_logger().info('No markers found')
-            self.process1()
+            rclpy.shutdown()
         z = round(self.robot_front_1_position[2],2)
         if z == 0.20:
             self.stop()
-            self.joint_pub = self.create_publisher(JointTrajectory, '/arm_controller/joint_trajectory', 10)
-            self.pose(POSE_DICT[1][0], POSE_DICT[1][1], POSE_DICT[1][2])
+            pose = PointToPose()
+            point = POSE_DICT['Yolo_Box_Detect']
+            pose_msg = pose.pose(point[0],point[1],point[2])
+            self.pose(pose_msg)
+
         elif z > 0.20:
             self.go_front()
         elif z< 0.2:
@@ -377,6 +428,8 @@ class ControllerTower(Node):
             1. 박스의 위치를 계산
             2. 로봇의 pose 각도를 계산
             3. 로봇의 pose로 이동 
+            4. 로봇의 grip
+            5. z축 방향으로 up (10cm)
         '''
         boxes = self.boxes
         if len(boxes) != self.box_num:
@@ -384,8 +437,18 @@ class ControllerTower(Node):
             return
         for box in boxes:
             x,y,z = self.yolo_pose(box,self.robot_front_1_position)
-            self.pose(x,y,z)
+            pose = PointToPose()
+            pose_msg = pose(x,y,z) # 로봇의 팔을 움직이기 위한 메시지
+            self.pose(pose_msg)
+            time.sleep(0.3)
             self.get_logger().info('Pose Done')
+            
+            self.grip()
+            time.sleep(0.1)
+            self.get_logger().info('Grip Done')
+
+            pose_msg = pose(x,y,z+0.1)
+            
     def process3(self):
         pass
     def process4(self):
