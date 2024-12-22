@@ -21,17 +21,79 @@ CAMERA_PARAMETERS['real_size'] = (0.105,0.105)
 robot_para = np.load(os.path.join(path,'params','robot_calib.npz')) # 로봇 카메라의 파라미터
 ROBOT_PARAMETERS = {key: robot_para[key] for key in robot_para}
 ROBOT_PARAMETERS['real_size'] = (0.105,0.105)
-
-j1_z_offset = 77
-r1 = 130
-r2 = 124
-r3 = 150
+ROBOT_PARAMETERS['box_size'] = (0.10,0.10) # 박스의 크기
 
 POSE_DICT= {
     'Yolo_Box_Detect': [110,0,130],
-    'Convey_Detect':[0,240,0], # 컨베이어 place 위치
-    'puple_box_detect':[110,0.0,0.130], 
+    'Convey_Detect':[0,-240,0], # 컨베이어 place 위치
+    'puple_box_detect':[110,-240,130], # 보라색 박스 위치
+    'deliver': [80,0,80], # 배달시 위치
+    'place' : [0,240,0], # 박스를 놓을 위치
+    'look': [10,0,130] # 박스를 보기위한 위치
 }
+
+class YoloPose():
+    def __init__(self,K, real_size):
+        '''
+        yolo에서 받은 결과를 받아서 처리하는 클래스
+        '''
+        self.K = K
+        self.real_size = real_size
+
+    def __call__(self,box: list,origin: list):
+        '''
+        yolo에서 받은 결과를 받고 원래 카메라의 위치를 받이서 3d 위치를 계산
+        box: [x,y,w,h]
+        origin: [x,y,z] # 카메라의 위치
+        '''
+        x, y, w, h = box
+        Z = self.calculate_z_from_cam(self.real_size, [w,h], self.K)
+        X, Y, Z = self.calculate_3d_position_from_cam(x, y, Z, self.K)
+        X_pos, Y_pos, Z_pos = self.calculate_3d_pos_for_box([X,Y,Z],origin)
+        return X_pos, Y_pos, Z_pos
+    
+    def calculate_z_from_cam(self, image_size):
+        """
+        카메라 중심을 기준으로 Z 위치 계산 (카메라 좌표계)
+        W_real: 물체의 실제 크기 (미터)
+        W_image: 물체의 이미지 상 크기 (픽셀) (w,h)로 받음 
+        K: 카메라 내부 파라미터 행렬
+        output: Z 위치 (미터)
+        """
+        f_x, f_y = self.K[0, 0], self.K[1, 1]
+        # Z 계산
+        Z_x = (self.real_size[0] * f_x) / image_size[0]
+        Z_y = (self.real_size[1] * f_y) / image_size[1]
+        Z = (Z_x + Z_y) / 2 # 평균값 사용
+        return Z
+    
+    def calculate_3d_position_from_cam(self, u, v, Z):
+        """
+        3D 위치 추정  카메라 중심을 기준으로 3D 위치 계산 (카메라 좌표계)
+        u, v: 이미지 상의 객체 중심 좌표 (픽셀)
+        Z: 카메라 좌표계에서의 Z 위치 (미터)
+        K: 카메라 내부 파라미터 행렬
+        """
+        c_x, c_y = self.K[0, 2], self.K[1, 2]
+        f_x, f_y = self.K[0, 0], self.K[1, 1]
+
+        # 3D 위치 계산
+        X = (u - c_x) * Z / f_x
+        Y = (v - c_y) * Z / f_y
+
+        return X, Y, Z
+    
+    def calculate_3d_pos_for_box(self, box_pose,origin):
+
+        X,Y,Z = box_pose
+
+        X = X + origin[0]
+        Y = Y + origin[1]
+        Z = Z + origin[2]
+
+        return X,Y,Z
+
+
 th1_offset = - math.atan2(0.024, 0.128)
 th2_offset = - 0.5*math.pi - th1_offset
 
@@ -44,6 +106,10 @@ def solv2(r1, r2, r3):
 
   return s1, s2
 
+j1_z_offset = 77
+r1 = 130
+r2 = 124
+r3 = 150
 def solv_robot_arm2(x, y, z, r1, r2, r3):
   z = z + r3 - j1_z_offset
 
@@ -128,6 +194,7 @@ class ControllerTower(Node):
         self.points_pubs()
         # self.command_pubs()
         # self.status_subs()
+        self.yolo_pose = YoloPose(ROBOT_PARAMETERS['mtx'], ROBOT_PARAMETERS['box_size']) # yolo pose 객체 생성
         self.process()
 
     def images_pubs(self):
@@ -145,6 +212,8 @@ class ControllerTower(Node):
         self.front_1_position = None
         self.robot_front_1_position = None
 
+    def conveyor_pubs(self):
+        self.conveyor_cmd_pubs = self.create_publisher(String, '/conveyor/cmd', QoSProfile(depth=10))
     def command_pubs(self):
         self.robot_command_pubs = self.create_publisher(String, '/robot/command', QoSProfile(depth=10))
         self.conveyor_command_pubs = self.create_publisher(String, '/conveyor/command', QoSProfile(depth=10))
@@ -268,6 +337,7 @@ class ControllerTower(Node):
         self.trajectory_msg.points = [point]
 
         self.joint_pub.publish(self.trajectory_msg)
+        self.get_logger().info('Pose Done')
     def process1(self):
         '''
         1. 로봇의 위치를 인식 후 move
