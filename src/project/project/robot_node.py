@@ -75,18 +75,6 @@ base_to_box = 101*0.001
 delta_z = base_to_cam - base_to_box
 delta_x = -cam_to_grip 
 
-def get_grip_pose(x, y,shapes = (640,480)):
-    '''
-    box 좌표를 grip 좌표로 변환
-    '''
-    origin_pos = [110,0,130]
-    x_delta_image = x - shapes[0]/2
-    y_delta_image = y - shapes[1]/2
-    pose_x = x_delta_image +origin_pos[0] + delta_x
-    pose_y = y_delta_image +origin_pos[1]
-    pose_z = origin_pos[2] + delta_z
-    return pose_x, pose_y, pose_z
-
 def convert_to_string(outputs):
     '''
     YOLO를 이용하여 인식한 결과를 string으로 변환하는 함수
@@ -94,12 +82,12 @@ def convert_to_string(outputs):
     반환: string으로 변환된 결과 (class_list, [x, y, w, h])
     '''
     if outputs is None or len(outputs) == 0:
-        return "None"
+        return "None" , "None"
 
     # YOLO 결과 처리
     result = outputs[0]  # 단일 이미지 결과 사용
     if not hasattr(result, "boxes"):
-        return "None"
+        return "None", "None"
 
     boxes = result.boxes.xywh  # 바운딩 박스 정보
     classes = result.boxes.cls  # 클래스 정보
@@ -190,62 +178,6 @@ class RobotNode(Node):
         '''
         result = self.yolo_model(image)
         return result
-    
-    def control(self,z):
-        '''
-        로봇을 제어하기 위한 함수
-        1. 로봇과 front_1의 위치를 인식
-        '''
-        z = round(z,2)
-        if z == 0.20:
-            self.stop()
-            self.pose_to_detect()
-        elif z > 0.20:
-            self.go_front()
-        elif z< 0.2:
-            self.go_back()
-
-    
-    def stop(self):
-        move = Twist()
-        move.linear.x = 0
-        self.get_logger().info('Stop')
-        self.cmd_vel.publish(move)
-    def go_front(self):
-        move = Twist()
-        move.linear.x = 0.1
-        self.get_logger().info('Go Front')
-        self.cmd_vel.publish(move)
-    def go_back(self):
-        move = Twist()
-        move.linear.x = -0.1
-        self.get_logger().info('Go Back')
-        self.cmd_vel.publish(move)
-    
-    def pose_to_detect(self):
-        '''
-        로봇의 위치를 인식하기 위한 함수
-        '''
-
-        Sxy, sr1, sr2, sr3, St, Rt = solv_robot_arm2(110, 0, 130, r1, r2, r3)
-        self.trajectory_msg = JointTrajectory()
-
-        current_time = self.get_clock().now()
-        self.trajectory_msg.header = Header()
-
-        self.trajectory_msg.header.frame_id = ''
-        self.trajectory_msg.joint_names = ['joint1', 'joint2', 'joint3', 'joint4']
-
-        point = JointTrajectoryPoint()
-        point.positions = [Sxy, sr1 + th1_offset, sr2 + th2_offset, sr3]
-        point.velocities = [0.0] * 4
-        point.accelerations = [0.0] * 4
-        point.time_from_start.sec = 0
-        point.time_from_start.nanosec = 500
-
-        self.trajectory_msg.points = [point]
-
-        self.joint_pub.publish(self.trajectory_msg)
 
     
 def main(args=None):

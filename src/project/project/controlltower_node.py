@@ -6,11 +6,11 @@ from sensor_msgs.msg import CompressedImage # CompressedImage 메시지 타입 �
 from geometry_msgs.msg import Point # Point 메시지 타입 임포트 
 from std_msgs.msg import String # String 메시지 타입 임포트
 import math, time
-from PyQt5.QtCore import QThread
+from threading import Thread
 from PyQt5.QtCore import pyqtSignal
 from geometry_msgs.msg import Twist
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from std_msgs.msg import Header
+from std_msgs.msg import Header, Int32
 from rclpy.action import ActionClient
 from control_msgs.action import GripperCommand
 path = get_package_share_directory('project') # 패키지의 경로를 가져옴
@@ -207,6 +207,29 @@ delta_z = base_to_cam - base_to_box
 delta_x = -cam_to_grip 
 '''
 
+
+class ProcessThread(Thread):
+    def __init__(self, node):
+        super().__init__()
+        self.node = node
+        self.running = True  # 스레드 실행 여부 플래그
+
+    def run(self):
+        """스레드에서 실행할 메인 로직"""
+        self.node.get_logger().info('Process thread started')
+        while self.running:
+            try:
+                self.node.process()  # Node의 process 함수 호출
+                break  # process 함수가 완료되면 루프 종료
+            except Exception as e:
+                self.node.get_logger().error(f"Error in process thread: {e}")
+                break
+
+    def stop(self):
+        """스레드 종료"""
+        self.running = False
+
+
 class ControllerTower(Node):
     
     def __init__(self):
@@ -218,7 +241,7 @@ class ControllerTower(Node):
         self.yolo_init()
         # self.command_pubs()
         # self.status_subs()
-        self.process()
+        self.thread_init()
 
     def yolo_init(self):
         self.yolo_pose = YoloPose(ROBOT_PARAMETERS['mtx'], ROBOT_PARAMETERS['box_size']) # yolo pose 객체 생성
@@ -250,12 +273,6 @@ class ControllerTower(Node):
 
     def conveyor_pubs(self):
         self.conveyor_cmd_pubs = self.create_publisher(String, '/conveyor/cmd', QoSProfile(depth=10))
-
-
-    def command_pubs(self):
-        self.robot_command_pubs = self.create_publisher(String, '/robot/command', QoSProfile(depth=10))
-        self.conveyor_command_pubs = self.create_publisher(String, '/conveyor/command', QoSProfile(depth=10))
-    
     def status_subs(self):
         self.robot_status_subs = self.create_subscription(String, '/robot/status', self.robot_status_callback, QoSProfile(depth=10))
         self.conveyor_status_subs = self.create_subscription(String, '/conveyor/status', self.conveyor_status_callback, QoSProfile(depth=10))
@@ -270,12 +287,19 @@ class ControllerTower(Node):
         self.box_dict = None
         self.goal_id = None
 
+    def thread_init(self):
+        self.process_thread = ProcessThread(self)
+        self.process_thread.start()
     def gui_command_callback(self, msg: String):
         '''
         GUI로부터 명령을 받아서 처리하는 콜백 함수
         형식: 
         {red:n, blue:m}, {id}
         '''
+        if msg.data == 'None':
+            self.box_dict = None
+            self.goal_id = None
+            return
         command = msg.data.split(',')
         box_command = command[0]
         box_dict = {box.split(':')[0]: int(box.split(':')[1]) for box in box_command.split()} # 박스 명령을 딕셔너리로 변환
@@ -283,7 +307,11 @@ class ControllerTower(Node):
         self.goal_id = int(command[1])
 
     def boxes_callback(self, msg: String):
+        if msg.data == 'None':
+            self.boxes_list = None
+            return
         self.boxes_list = msg.data.split(',')
+    
         self.boxes = [list(map(int, box.split())) for box in self.boxes_list]
     
     def clss_callback(self, msg: String):
@@ -310,7 +338,7 @@ class ControllerTower(Node):
             types = ID_DICT[mark_id[0]] # 마커의 id를 통해 마커의 종류를 알아냄
             if types == 'robot':
                 self.robot_position = position[0]
-                self.robot_position_pub.publish(Point(x=position[0],y=position[1],z=position[2]))
+                # self.robot_position_pub.publish(Point(x=position[0],y=position[1],z=position[2]))
             elif types == 'left_1':
                 self.left_1_position = position[0]
             elif types == 'left_2':
@@ -378,46 +406,55 @@ class ControllerTower(Node):
         
 
     def process(self):
+        '''
+        1. process1: 박스 위치로 이동하는 함수 
+        2. process2: 박스를 집고 배달하는 함수
+        3. process3: 보라색 박스를 찾아 움직이는 함수
+        4. process4: 보라색 박스를 집어 올리는 함수 
+        5. process5: 보라색 박스를 배달하기 위한 위치로 이동하는 함수
+        6. process6: 보라색 박스를 배달하여 내려놓는 함수
+        6. process7: 다시 원래 위치로 돌아가는 함수
+        '''
         self.count = 0
-        self.process1()
-        self.get_logger().info('process1 done')
+        # self.process1()
+        # self.get_logger().info('process1 done')
         self.process2()
         self.get_logger().info('process2 done')
         self.process3()
         self.get_logger().info('process3 done')
         self.process4()
         self.get_logger().info('process4 done')
+        self.process5()
+        self.get_logger().info('process5 done')
+        self.process6()
         self.get_logger().info('process6 done')
-        self.process7()
-        self.get_logger().info('process7 done')
-        self.process8()
-        self.get_logger().info('process8 done')    
     
     def process1(self):
         '''
         1. 로봇의 위치를 인식 후 move
         2. 해당 위칭 알면 정지 후 pose
         '''
-        if self.robot_front_1_position is None:
-            if self.count < 5:
-                self.count += 1
-                time.sleep(1)
-                return
-            self.get_logger().info('No markers found')
-            rclpy.shutdown()
-        z = round(self.robot_front_1_position[2],2)
-        if z == 0.20:
-            self.stop()
-            pose = PointToPose()
-            point = POSE_DICT['Yolo_Box_Detect']
-            pose_msg = pose.pose(point[0],point[1],point[2])
-            self.pose(pose_msg)
-
-        elif z > 0.20:
-            self.go_front()
-        elif z< 0.2:
-            self.go_back()
-    
+        done = False
+        while not done:
+            if self.robot_front_1_position is None:
+                if self.count < 5:
+                    self.count += 1
+                    time.sleep(1)
+                    return
+                self.get_logger().info('No markers found')
+                rclpy.shutdown()
+            z = round(self.robot_front_1_position[2],2)
+            if z == 0.20:
+                self.stop()
+                pose = PointToPose()
+                point = POSE_DICT['Yolo_Box_Detect']
+                pose_msg = pose.pose(point[0],point[1],point[2])
+                self.pose(pose_msg)
+                done = True
+            elif z > 0.20:
+                self.go_front()
+            elif z< 0.2:
+                self.go_back()
 
     def process2(self):
         '''
@@ -430,6 +467,10 @@ class ControllerTower(Node):
             3. 로봇의 pose로 이동 
             4. 로봇의 grip
             5. z축 방향으로 up (10cm)
+            6. 배달 위치로 이동
+            7. 로봇의 ungrip
+            8. 원 위치로 이동
+            9. conveyor로 80cm 이동 명령 (optional)
         '''
         boxes = self.boxes
         if len(boxes) != self.box_num:
@@ -447,14 +488,91 @@ class ControllerTower(Node):
             time.sleep(0.1)
             self.get_logger().info('Grip Done')
 
-            pose_msg = pose(x,y,z+0.1)
-            
+            pose_msg = pose(x,y,z+0.1) # 로봇의 팔을 움직이기 위한 메시지
+            self.pose(pose_msg)
+            time.sleep(0.3)
+
+            point = POSE_DICT['deliver'] # 배달 위치
+            pose_msg = pose(point[0],point[1],point[2])
+            self.pose(pose_msg)
+            time.sleep(0.3)
+
+            self.ungrip() # 박스 놓기
+            time.sleep(0.1)
+
+            point = POSE_DICT['Yolo_Box_Detect'] # 원 위치
+            pose_msg = pose(point[0],point[1],point[2])
+            self.pose(pose_msg)
+            time.sleep(0.3)
+
+            self.conveyor_cmd_pubs.publish(Int32(data=-1)) # 컨베이어 80cm 이동
+
     def process3(self):
-        pass
+        '''
+        1. 다시 앞을 바라보게 함
+        2. 뒤로 이동 z가 1.2 이상이면 정지
+        '''
+        pose = PointToPose()
+        point = POSE_DICT['look']
+        pose_msg = pose.pose(point[0],point[1],point[2])
+        self.pose(pose_msg)
+        time.sleep(0.3)
+
+        done = False
+        while not done:
+            z = round(self.robot_front_1_position[2],2)
+            if z == 1.2:
+                self.stop()
+                done = True
+            elif z > 1.2:
+                self.go_front()
+            elif z< 1.2:
+                self.go_back()
+
     def process4(self):
-        pass
+        '''
+        1. 보라색 박스를 찾기 위한 pose 
+        2. 보라색 박스 결과 받기
+        3. 보라색 박스의 위치 계산
+        4. 보라색 박스의 위치로 이동
+        5. 보라색 박스를 grip
+        6. z축 방향으로 up (10cm)
+        7. 
+        '''
+        pose = PointToPose()
+        point = POSE_DICT['puple_box_detect']
+        pose_msg = pose(point[0],point[1],point[2])
+        self.pose(pose_msg)
+        time.sleep(0.5) # 0.5초 대기
+
+        boxes = self.boxes
+        clss = self.clss
+        index = clss.index('purple') # 보라색 박스의 인덱스
+        box = boxes[index]
+        x,y,z = self.yolo_pose(box,self.robot_front_1_position)
+        pose = PointToPose()
+        pose_msg = pose(x,y,z)
+        self.pose(pose_msg)
+        time.sleep(0.3)
+
+        self.grip()
+        time.sleep(0.1)
+
+        pose_msg = pose(x,y,z+0.1) # 로봇의 팔을 움직이기 위한 메시지
+        self.pose(pose_msg)
+        time.sleep(0.3)
+
+        point = POSE_DICT['Yolo_Box_Detect'] # 정면을 바라보기 위한 함수 
+        pose_msg = pose(point[0],point[1],point[2])
+        self.pose(pose_msg)
+        time.sleep(0.3)
+        
     def process5(self):
+        '''
+        
+        '''
         pass
+    
     def process6(self):
         pass
     def process7(self):
