@@ -158,6 +158,40 @@ class YoloPose():
 
         return X,Y,Z
 
+
+th1_offset = - math.atan2(0.024, 0.128)
+th2_offset = - 0.5*math.pi - th1_offset
+
+def solv2(r1, r2, r3):
+  d1 = (r3**2 - r2**2 + r1**2) / (2*r3)
+  d2 = (r3**2 + r2**2 - r1**2) / (2*r3)
+
+  s1 = math.acos(d1 / r1)
+  s2 = math.acos(d2 / r2)
+
+  return s1, s2
+
+j1_z_offset = 77
+r1 = 130
+r2 = 124
+r3 = 150
+def solv_robot_arm2(x, y, z, r1, r2, r3):
+  z = z + r3 - j1_z_offset
+
+  Rt = math.sqrt(x**2 + y**2 + z**2)
+  Rxy = math.sqrt(x**2 + y**2)
+  St = math.asin(z / Rt)
+  Sxy = math.atan2(y, x)
+
+  s1, s2 = solv2(r1, r2, Rt)
+
+  sr1 = math.pi/2 - (s1 + St)
+  sr2 = s1 + s2
+  sr2_ = sr1 + sr2
+  sr3 = math.pi - sr2_
+
+  return Sxy, sr1, sr2, sr3, St, Rt
+
 ID_DICT = {
     1: 'left_1',
     2: 'left_2',
@@ -203,9 +237,21 @@ base_to_box = 101*0.001
 
 delta_z = base_to_cam - base_to_box
 delta_x = -cam_to_grip 
+def get_grip_pose(x, y,shapes = (640,480)):
+    '''
+    box 좌표를 grip 좌표로 변환
+    '''
+    origin_pos = [110,0,130]
+    x_delta_image = x - shapes[0]/2
+    y_delta_image = y - shapes[1]/2
+    pose_x = x_delta_image +origin_pos[0] + delta_x
+    pose_y = y_delta_image +origin_pos[1]
+    pose_z = origin_pos[2] + delta_z
+    return pose_x, pose_y, pose_z
+
 
 class ControllerTower(Node):
-    
+
     def __init__(self):
         super().__init__('controller_tower')
 
@@ -213,13 +259,8 @@ class ControllerTower(Node):
         self.points_pubs()
         # self.command_pubs()
         # self.status_subs()
-        self.process()
-
-    def yolo_init(self):
         self.yolo_pose = YoloPose(ROBOT_PARAMETERS['mtx'], ROBOT_PARAMETERS['box_size']) # yolo pose 객체 생성
-        self.boxes_sub = self.create_subscription(String, '/yolo/boxes', self.boxes_callback, QoSProfile(depth=10))
-        self.boxes_list = []
-        self.clss_list = []
+        self.process()
 
     def images_pubs(self):
         self.world_cam_sub = self.create_subscription(CompressedImage, '/world/compressed_image', self.world_cam_callback, QoSProfile(depth=10))
@@ -282,8 +323,6 @@ class ControllerTower(Node):
                 self.left_3_position = position[0]
             elif types == 'front_1':
                 self.front_1_position = position[0]
-            else:
-                self.get_logger().info('No markers found')
 
 
     def robot_image_callback(self, msg: CompressedImage):
@@ -307,6 +346,22 @@ class ControllerTower(Node):
                 self.robot_front_1_position = position[0]
         print('Robot Front 1 Position: ',self.robot_front_1_position)
 
+    def process(self):
+        self.cmd_vel = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.process1()
+        self.get_logger().info('process1 done')
+        self.process2()
+        self.get_logger().info('process2 done')
+        self.process3()
+        self.get_logger().info('process3 done')
+        self.process4()
+        self.get_logger().info('process4 done')
+        self.get_logger().info('process6 done')
+        self.process7()
+        self.get_logger().info('process7 done')
+        self.process8()
+        self.get_logger().info('process8 done')
+    
     def stop(self):
         move = Twist()
         move.linear.x = 0
@@ -327,32 +382,30 @@ class ControllerTower(Node):
         '''
         로봇의 x,y,z 좌표를 받아서 로봇의 팔을 움직임
         '''
-        pose = PointToPose()
-        self.trajectory_msg = pose.pose(x, y, z)
+
+        Sxy, sr1, sr2, sr3, St, Rt = solv_robot_arm2(x, y, z, r1, r2, r3)
+        self.trajectory_msg = JointTrajectory()
+
+        current_time = self.get_clock().now()
+        self.trajectory_msg.header = Header()
+
+        self.trajectory_msg.header.frame_id = ''
+        self.trajectory_msg.joint_names = ['joint1', 'joint2', 'joint3', 'joint4']
+
+        point = JointTrajectoryPoint()
+        point.positions = [Sxy, sr1 + th1_offset, sr2 + th2_offset, sr3]
+        point.velocities = [0.0] * 4
+        point.accelerations = [0.0] * 4
+        point.time_from_start.sec = 0
+        point.time_from_start.nanosec = 500
+
+        self.trajectory_msg.points = [point]
+
         self.joint_pub.publish(self.trajectory_msg)
         self.get_logger().info('Pose Done')
-
-
-    def process(self):
-        self.cmd_vel = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.process1()
-        self.get_logger().info('process1 done')
-        self.process2()
-        self.get_logger().info('process2 done')
-        self.process3()
-        self.get_logger().info('process3 done')
-        self.process4()
-        self.get_logger().info('process4 done')
-        self.get_logger().info('process6 done')
-        self.process7()
-        self.get_logger().info('process7 done')
-        self.process8()
-        self.get_logger().info('process8 done')    
-    
     def process1(self):
         '''
         1. 로봇의 위치를 인식 후 move
-        2. 해당 위칭 알면 정지 후 pose
         '''
         if self.robot_front_1_position is None:
             self.get_logger().info('No markers found')
@@ -369,23 +422,7 @@ class ControllerTower(Node):
     
 
     def process2(self):
-        '''
-        1. box를 인식 
-        2. 박스 개수와 cmd 받은 박스 종류와 개수가 맞으면 pass, 아니면 error 메시지 출력
-        3. 박스의 위치를 계산
-        for box in boxes:
-            1. 박스의 위치를 계산
-            2. 로봇의 pose 각도를 계산
-            3. 로봇의 pose로 이동 
-        '''
-        boxes = self.boxes
-        if len(boxes) != self.box_num:
-            self.get_logger().info('Box num is not correct')
-            return
-        for box in boxes:
-            x,y,z = self.yolo_pose(box,self.robot_front_1_position)
-            self.pose(x,y,z)
-            self.get_logger().info('Pose Done')
+        pass
     def process3(self):
         pass
     def process4(self):
