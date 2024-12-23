@@ -13,7 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
-        ('share/' + package_name + '/rviz', glob('ui/*.ui')),
+        ('share/' + package_name + '/ui', glob('ui/*.ui')),
         ('share/' + package_name + '/params', glob('params/*.npz')),
         ('share/' + package_name + '/yolo', glob('yolo/*.pt')),
     ],

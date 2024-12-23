@@ -5,7 +5,7 @@ from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import CompressedImage # CompressedImage 메시지 타입 임포트 
 from geometry_msgs.msg import Point # Point 메시지 타입 임포트 
 from std_msgs.msg import String # String 메시지 타입 임포트
-import math, time
+import math, time, json
 from threading import Thread
 from PyQt5.QtCore import pyqtSignal
 from geometry_msgs.msg import Twist
@@ -23,7 +23,7 @@ CAMERA_PARAMETERS['real_size'] = (0.105,0.105)
 robot_para = np.load(os.path.join(path,'params','robot_calib.npz')) # 로봇 카메라의 파라미터
 ROBOT_PARAMETERS = {key: robot_para[key] for key in robot_para}
 ROBOT_PARAMETERS['real_size'] = (0.105,0.105)
-ROBOT_PARAMETERS['box_size'] = (0.10,0.10) # 박스의 크기
+ROBOT_PARAMETERS['box_size'] = (3.7*10, 3.7*10) # mm 단위  
 
 POSE_DICT= {
     'Yolo_Box_Detect': [110,0,130],
@@ -33,6 +33,10 @@ POSE_DICT= {
     'place' : [0,240,0], # 박스를 놓을 위치
     'look': [10,0,130] # 박스를 보기위한 위치
 }
+piexl_to_meter = round(19.5*10/np.sqrt((59-599)**2+(344-352)**2),2) # sqrt((x-590)^2+(y-590)^2) = sqrt((71-590)^2+(140-590)^2) = 590
+mm_to_piexl = piexl_to_meter
+print(piexl_to_meter)
+
 class PointToPose():
     def __init__(self):
         '''
@@ -80,17 +84,18 @@ class PointToPose():
         '''
         로봇의 x,y,z 좌표를 받아서 로봇의 팔을 움직임
         '''
-        Sxy, sr1, sr2, sr3, St, Rt = self.solv_robot_arm2(x, y, z)
+        th1_offset = - math.atan2(0.024, 0.128)
+        th2_offset = - 0.5*math.pi - th1_offset
         self.trajectory_msg = JointTrajectory()
-
-        current_time = self.get_clock().now()
+        Sxy, sr1, sr2, sr3, St, Rt = self.solv_robot_arm2(x, y, z)
+		# current_time = self.get_clock().now()
         self.trajectory_msg.header = Header()
-
+#		self.trajectory_msg.header.stamp = current_time.to_msg()
         self.trajectory_msg.header.frame_id = ''
         self.trajectory_msg.joint_names = ['joint1', 'joint2', 'joint3', 'joint4']
 
         point = JointTrajectoryPoint()
-        point.positions = [Sxy, sr1, sr2, sr3]
+        point.positions = [Sxy, sr1 + th1_offset, sr2 + th2_offset, sr3]
         point.velocities = [0.0] * 4
         point.accelerations = [0.0] * 4
         point.time_from_start.sec = 0
@@ -107,15 +112,16 @@ class YoloPose():
         self.K = K
         self.real_size = real_size
 
-    def __call__(self,box: list,origin: list):
+    def __call__(self,box: list,origin: list,image_size):
         '''
         yolo에서 받은 결과를 받고 원래 카메라의 위치를 받이서 3d 위치를 계산
         box: [x,y,w,h]
         origin: [x,y,z] # 카메라의 위치
         '''
         x, y, w, h = box
-        Z = self.calculate_z_from_cam(self.real_size, [w,h], self.K)
-        X, Y, Z = self.calculate_3d_position_from_cam(x, y, Z, self.K)
+        Z = self.calculate_z_from_cam([w,h])
+        X, Y = self.calculate_3d_position_from_cam(x, y,image_size)
+        # X_pos, Y_pos, Z_pos = self.calculate_offset(X,Y,Z)
         X_pos, Y_pos, Z_pos = self.calculate_3d_pos_for_box([X,Y,Z],origin)
         return X_pos, Y_pos, Z_pos
     
@@ -127,36 +133,52 @@ class YoloPose():
         K: 카메라 내부 파라미터 행렬
         output: Z 위치 (미터)
         """
-        f_x, f_y = self.K[0, 0], self.K[1, 1]
-        # Z 계산
-        Z_x = (self.real_size[0] * f_x) / image_size[0]
-        Z_y = (self.real_size[1] * f_y) / image_size[1]
-        Z = (Z_x + Z_y) / 2 # 평균값 사용
+        base_to_cam = 22*0.01
+        base_to_box = 35*0.001
+        Z= (-base_to_cam+base_to_box)*1000
+        Z+=101
         return Z
     
-    def calculate_3d_position_from_cam(self, u, v, Z):
+    def calculate_3d_position_from_cam(self, u, v, image_size):
         """
         3D 위치 추정  카메라 중심을 기준으로 3D 위치 계산 (카메라 좌표계)
         u, v: 이미지 상의 객체 중심 좌표 (픽셀)
         Z: 카메라 좌표계에서의 Z 위치 (미터)
         K: 카메라 내부 파라미터 행렬
         """
-        c_x, c_y = self.K[0, 2], self.K[1, 2]
-        f_x, f_y = self.K[0, 0], self.K[1, 1]
-
+        c_x, c_y = self.K[0, 2], self.K[1, 2] # 이미지의 중심
+        # print("c_x,c_y: ",c_x,c_y)
+        # c_x, c_y = image_size[0]//2, image_size[1]//2
         # 3D 위치 계산
-        X = (u - c_x) * Z / f_x
-        Y = (v - c_y) * Z / f_y
+        X = (u - c_x)*mm_to_piexl
+        Y = (v - c_y)*mm_to_piexl
+        print("X,Y,Z: ",X,Y)
+        return -Y,-X
+    
+    def calculate_offset(self,X,Y,Z):
+        base_to_grip = 17.5*0.01
+        base_to_cam = 22*0.01
+        cam_to_grip = 7*0.01 # x축
+        base_to_box = 35*0.001
+        base_to_base = 5*0.01
+        base_to_box = 101*0.001
 
-        return X, Y, Z
+        # delta_z = -(base_to_cam - base_to_grip)*1000
+        # delta_x = (cam_to_grip)*1000 
+        delta_z = 0
+        delta_x = 0
+        X = X + delta_x
+        Z = Z + delta_z
+        return X,Y,Z
     
     def calculate_3d_pos_for_box(self, box_pose,origin):
-
+        origin = [110,0,130]
         X,Y,Z = box_pose
 
         X = X + origin[0]
         Y = Y + origin[1]
         Z = Z + origin[2]
+        print(X,Y,Z, 'after')
 
         return X,Y,Z
 
@@ -179,11 +201,10 @@ def get_pose(frame, parameters):
 
     corners, ids, _ = cv2.aruco.detectMarkers(gray, arucoDict, parameters=arucoParams)
     rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, 0.105, k, d)
-    R, _ = cv2.Rodrigues(rvecs[0])
-
-    rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, 0.105, k, d)
-    if ids is None:
+    if ids is None or tvecs is None:
+        # print("No markers found in the image")
         return frame, None, None
+    R, _ = cv2.Rodrigues(rvecs[0])
     for i in range(len(ids)):
         # 축 및 마커 그리기
         cv2.aruco.drawAxis(frame, parameters['mtx'], parameters['dist'], rvecs[i], tvecs[i], 0.105)
@@ -192,21 +213,8 @@ def get_pose(frame, parameters):
         y = tvecs[i][0][1]
         z = tvecs[i][0][2]
         cv2.putText(frame, f"x: {x:.2f} y: {y:.2f} z: {z:.2f}", (10, 30 * (i + 1)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
-
+    
     return frame, ids, tvecs
-
-'''
-base_to_grip = 17.5*0.01
-base_to_cam = 22*0.01
-cam_to_grip = 7*0.01 # x축
-base_to_box = 35*0.001
-base_to_base = 5*0.01
-base_to_box = 101*0.001
-
-delta_z = base_to_cam - base_to_box
-delta_x = -cam_to_grip 
-'''
-
 
 class ProcessThread(Thread):
     def __init__(self, node):
@@ -225,10 +233,6 @@ class ProcessThread(Thread):
                 self.node.get_logger().error(f"Error in process thread: {e}")
                 break
 
-    def stop(self):
-        """스레드 종료"""
-        self.running = False
-
 
 class ControllerTower(Node):
     
@@ -246,9 +250,12 @@ class ControllerTower(Node):
     def yolo_init(self):
         self.yolo_pose = YoloPose(ROBOT_PARAMETERS['mtx'], ROBOT_PARAMETERS['box_size']) # yolo pose 객체 생성
         self.boxes_sub = self.create_subscription(String, '/robot/yolo_boxes', self.boxes_callback, QoSProfile(depth=5))
-        self.clss_sub = self.create_subscription(String, '/robot/yolo_clss', self.clss_callback, QoSProfile(depth=5))
+        self.clss_sub = self.create_subscription(String, '/robot/yolo_classes', self.clss_callback, QoSProfile(depth=5))
         self.boxes_list = None
         self.clss_list = None
+        self.boxes = None
+        self.clss = None
+        self.count = 0
     
     def controller_pubs(self):
         self.joint_pub = self.create_publisher(JointTrajectory, '/arm_controller/joint_trajectory', 10)
@@ -307,18 +314,55 @@ class ControllerTower(Node):
         self.goal_id = int(command[1])
 
     def boxes_callback(self, msg: String):
-        if msg.data == 'None':
+        # 입력이 'None' 또는 '[]'인 경우 처리
+        if msg.data == 'None' or msg.data.strip() == '[]':
+            # print('None')
             self.boxes_list = None
+            self.boxes = None
             return
-        self.boxes_list = msg.data.split(',')
-    
-        self.boxes = [list(map(int, box.split())) for box in self.boxes_list]
-    
+        
+        # 문자열 데이터를 JSON 형식으로 안전하게 처리
+        try:
+            # 문자열을 JSON으로 변환
+            self.boxes_list = json.loads(msg.data)
+            
+            # 리스트가 비어있을 경우 처리
+            if not self.boxes_list:
+                self.boxes = None
+                return
+            
+            # 박스 데이터를 숫자 리스트로 변환
+            self.boxes = [
+                [float(value) for value in box]
+                for box in self.boxes_list
+            ]
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f"JSON decode error: {e}")
+            self.boxes_list = None
+            self.boxes = None
+        
     def clss_callback(self, msg: String):
-        self.clss_list = msg.data.split(',')
-        self.clss = [clss for clss in self.clss_list]
-        clss_dict = {0: 'blue', 1: 'purple', 2: 'red'}
-        self.clss = [clss_dict[int(clss)] for clss in self.clss_list] # 클래스 번호를 클래스 이름으로 변환
+        """
+        YOLO 클래스 데이터를 JSON 배열 형식으로 처리하는 콜백 함수.
+        """
+        try:
+            print(msg.data)
+            # JSON 문자열을 리스트로 변환
+            self.clss_list = json.loads(msg.data)  # '[2, 0, 2]' -> [2, 0, 2]
+            self.clss_list = [int(i) for i in self.clss_list]
+            
+            # 클래스 번호를 이름으로 변환
+            clss_dict = {0: 'blue', 1: 'purple', 2: 'red'}
+            self.clss = [clss_dict[int(clss)] for clss in self.clss_list]
+            
+            # 디버깅 로그
+            # self.get_logger().info(f"Parsed classes: {self.clss}")
+        
+        except json.JSONDecodeError as e:
+            # JSON 파싱 실패 시 처리
+            # self.get_logger().error(f"Failed to parse JSON: {e}")
+            self.clss_list = None
+            self.clss = None
 
     def world_cam_callback(self, msg: CompressedImage):
         '''
@@ -332,7 +376,7 @@ class ControllerTower(Node):
         image, ids, tvecs = get_pose(image, CAMERA_PARAMETERS)
         self.world_cam = image
         if tvecs is None or ids is None: # 마커가 없으면 함수 종료
-            self.get_logger().info('No markers found')
+            # self.get_logger().info('No markers found')
             return 
         for mark_id , position in zip(ids, tvecs):
             types = ID_DICT[mark_id[0]] # 마커의 id를 통해 마커의 종류를 알아냄
@@ -361,26 +405,28 @@ class ControllerTower(Node):
         np_arr = np.frombuffer(msg.data, np.uint8)
         image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         image, ids, tvecs = get_pose(image, ROBOT_PARAMETERS)
+        self.shape = image.shape
         self.robot_image = image
         if tvecs is None or ids is None:
-            self.get_logger().info('No markers found')
+            # self.get_logger().info('No markers found')
             return
         for mark_id , position in zip(ids, tvecs):
             types = ID_DICT[mark_id[0]]
             if types == 'front_1':
                 self.robot_front_1_position = position[0]
-        print('Robot Front 1 Position: ',self.robot_front_1_position)
 
     def stop(self):
         move = Twist()
-        move.linear.x = 0
+        move.linear.x = 0.0
         self.cmd_vel_pub.publish(move)
         self.get_logger().info('Stop')
+
     def go_front(self):
         move = Twist()
         move.linear.x = 0.1
         self.cmd_vel_pub.publish(move)
         self.get_logger().info('Go Front')
+
     def go_back(self):
         move = Twist()
         move.linear.x = -0.1
@@ -415,46 +461,52 @@ class ControllerTower(Node):
         6. process6: 보라색 박스를 배달하여 내려놓는 함수
         6. process7: 다시 원래 위치로 돌아가는 함수
         '''
-        self.count = 0
-        # self.process1()
-        # self.get_logger().info('process1 done')
+        self.process1()
+        self.get_logger().info('process1 done')
         self.process2()
         self.get_logger().info('process2 done')
-        self.process3()
-        self.get_logger().info('process3 done')
-        self.process4()
-        self.get_logger().info('process4 done')
-        self.process5()
-        self.get_logger().info('process5 done')
-        self.process6()
-        self.get_logger().info('process6 done')
+        # self.process3()
+        # self.get_logger().info('process3 done')
+        # self.process4()
+        # self.get_logger().info('process4 done')
+        # self.process5()
+        # self.get_logger().info('process5 done')
+        # self.process6()
+        # self.get_logger().info('process6 done')
     
     def process1(self):
         '''
         1. 로봇의 위치를 인식 후 move
-        2. 해당 위칭 알면 정지 후 pose
+        2. 해당 위치에 도달하면 정지 후 pose
         '''
         done = False
         while not done:
             if self.robot_front_1_position is None:
-                if self.count < 5:
+                if self.count < 3:
                     self.count += 1
                     time.sleep(1)
-                    return
-                self.get_logger().info('No markers found')
-                rclpy.shutdown()
-            z = round(self.robot_front_1_position[2],2)
-            if z == 0.20:
+                    return self.process1()  # 다시 호출
+                self.get_logger().error('No markers found in 3sec')
+                self.case = 1  # 상태를 초기화
+                return  # 종료
+
+            # 로봇 위치 확인
+            z = round(self.robot_front_1_position[2], 2)
+            ranges = 0.25
+            if z == ranges:
                 self.stop()
-                pose = PointToPose()
-                point = POSE_DICT['Yolo_Box_Detect']
-                pose_msg = pose.pose(point[0],point[1],point[2])
-                self.pose(pose_msg)
-                done = True
-            elif z > 0.20:
+                self.case = 2  # 상태 전환
+                done = True  # 루프 종료
+            elif z > ranges:
+                self.get_logger().info(f"Moving forward: z = {z}")
                 self.go_front()
-            elif z< 0.2:
+            elif z < ranges:
+                self.get_logger().info(f"Moving backward: z = {z}")
                 self.go_back()
+
+        # process1 완료 후 상태 전환
+        self.case = 2
+        self.get_logger().info('process1 completed. Moving to process2.')
 
     def process2(self):
         '''
@@ -463,7 +515,7 @@ class ControllerTower(Node):
         3. 박스의 위치를 계산
         for box in boxes:
             1. 박스의 위치를 계산
-            2. 로봇의 pose 각도를 계산
+            2. 로봇의 pose 각도a 계산
             3. 로봇의 pose로 이동 
             4. 로봇의 grip
             5. z축 방향으로 up (10cm)
@@ -472,33 +524,69 @@ class ControllerTower(Node):
             8. 원 위치로 이동
             9. conveyor로 80cm 이동 명령 (optional)
         '''
-        boxes = self.boxes
-        if len(boxes) != self.box_num:
-            self.get_logger().info('Box num is not correct')
-            return
-        for box in boxes:
-            x,y,z = self.yolo_pose(box,self.robot_front_1_position)
+        boxes_data = None
+        clss_data = None
+        pose = PointToPose()
+        point = POSE_DICT['Yolo_Box_Detect']
+        pose_msg = pose.pose(point[0],point[1],point[2])
+        self.pose(pose_msg)
+        time.sleep(4.0)
+        print("init pose")
+        while boxes_data is None or clss_data is None:
+            self.count  = 0
+            time.sleep(0.5)
             pose = PointToPose()
-            pose_msg = pose(x,y,z) # 로봇의 팔을 움직이기 위한 메시지
+            point = POSE_DICT['Yolo_Box_Detect']
+            pose_msg = pose.pose(point[0],point[1],point[2])
             self.pose(pose_msg)
-            time.sleep(0.3)
-            self.get_logger().info('Pose Done')
+            time.sleep(2.0)
+            boxes_data = self.boxes
+            clss_data = self.clss
+        boxes = boxes_data.copy()
+        clss = clss_data.copy()
+        # print("Boxes: ",boxes)
+        # box_dict = self.box_dict
+        box_dict = {'red': 1, 'blue': 1}
+        if box_dict is None:
+            self.get_logger().info('No box command')
+            return
+        for box, cls in zip(boxes,clss):
+            origin_pose  = [110,0,130]
+            x,y,z = self.yolo_pose(box=box,origin=origin_pose,image_size=self.shape)
+            print("x,y,z: ",x,y,z, "cls: ",cls)
+            pose = PointToPose()
+            pose_msg = pose(x,y,z)
+            self.pose(pose_msg)
+            time.sleep(2.0)
+
+            thetha = np.arctan2(y,x)
+            print(thetha)
+            offset = 70
+            x = x + offset*np.cos(thetha)
+            y = y + offset*np.sin(thetha)
+            z = z+ 30
+            print("x,y,z: ",x,y,z)
+            pose_msg = pose(x,y,z)
+            self.pose(pose_msg)
+            time.sleep(1.0)
+            self.get_logger().info('Pose Done to box')
+            break
             
             self.grip()
-            time.sleep(0.1)
+            time.sleep(1.0)
             self.get_logger().info('Grip Done')
 
             pose_msg = pose(x,y,z+0.1) # 로봇의 팔을 움직이기 위한 메시지
             self.pose(pose_msg)
-            time.sleep(0.3)
+            time.sleep(1.0)
 
             point = POSE_DICT['deliver'] # 배달 위치
             pose_msg = pose(point[0],point[1],point[2])
             self.pose(pose_msg)
-            time.sleep(0.3)
+            time.sleep(1.0)
 
             self.ungrip() # 박스 놓기
-            time.sleep(0.1)
+            time.sleep(1.0)
 
             point = POSE_DICT['Yolo_Box_Detect'] # 원 위치
             pose_msg = pose(point[0],point[1],point[2])
@@ -506,7 +594,6 @@ class ControllerTower(Node):
             time.sleep(0.3)
 
             self.conveyor_cmd_pubs.publish(Int32(data=-1)) # 컨베이어 80cm 이동
-
     def process3(self):
         '''
         1. 다시 앞을 바라보게 함
@@ -569,7 +656,7 @@ class ControllerTower(Node):
         
     def process5(self):
         '''
-        
+        목표 위치로 이동 
         '''
         pass
     def process6(self):

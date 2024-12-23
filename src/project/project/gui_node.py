@@ -29,6 +29,8 @@ def get_pose(frame, parameters):
     k = mtx
     d = dist
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Apply Gaussian filtering
+    frame = cv2.GaussianBlur(frame, (5, 5), 0)
 
     # Load the predefined dictionary
     arucoDict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)

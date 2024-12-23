@@ -104,7 +104,7 @@ class ConveyorStateMonitorNode(Node):
         from_email ='minseung2201@gmail.com'
         email_password = 'miog vbdi eojb fdkg'
         to_email = 'na06219@g.skku.edu'
-        self.monitor_thread = ArduinoHandlerThread('/dev/ttyACM1', 115200, from_email, email_password, to_email)
+        self.monitor_thread = ArduinoHandlerThread('/dev/ttyACM0', 115200, from_email, email_password, to_email)
         self.monitor_thread.start() # 쓰레드 시작 및 모니터링 시작
 
     def cmd_callback(self, msg):

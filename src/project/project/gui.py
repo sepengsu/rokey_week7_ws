@@ -132,8 +132,29 @@ class GUI(QMainWindow):
                     y2 = int(y + h/2)
                     
                     cv2.rectangle(image_rgb,(x1,y1),(x2,y2),(0,255,0),2)
+                    center_x = int(x)
+                    center_y = int(y)
+                    cv2.circle(image_rgb, (center_x, center_y), 5, (0, 0, 255), -1)
                     cls = str(cls)
                     cv2.putText(image_rgb,cls,(x1,y1-10),cv2.FONT_HERSHEY_SIMPLEX,0.9,(36,255,12),2)
+
+            # NumPy 배열을 QImage로 변환
+            bytes_per_line = 3 * width
+            qimage = QImage(image_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
+
+            # 이미지를 QLabel에 표시하기 위해 resize
+            qimage = qimage.scaled(self.robot_cam.width(), self.robot_cam.height())
+            # QImage를 QPixmap으로 변환 후 QLabel에 표시
+            pixmap = QPixmap.fromImage(qimage)
+            self.robot_cam.setPixmap(pixmap)
+            center_x, center_y = width // 2, height // 2
+
+            # Draw vertical line
+            cv2.line(image_rgb, (center_x, 0), (center_x, height), (255, 0, 0), 2)
+            # Draw horizontal line
+            cv2.line(image_rgb, (0, center_y), (width, center_y), (255, 0, 0), 2)
+            # Draw point at (0, 0)
+            cv2.circle(image_rgb, (0, 0), 5, (0, 0, 255), -1)
 
             # NumPy 배열을 QImage로 변환
             bytes_per_line = 3 * width
