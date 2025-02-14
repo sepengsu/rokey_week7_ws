@@ -14,3 +14,5 @@ __pycache__/
 *.pyw
 *.pyz
 *.pywz
+/SpartX_DigitalTwin
+!val.jpg
