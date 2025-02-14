@@ -24,7 +24,16 @@
 - **YOLOv8 기반 물체 탐지 및 ArUco 마커를 통한 정밀 위치 보정**
 
 ### 🖼 실습 환경
-
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/sys.jpg" width="120">
+    </td>
+    <td align="center">
+      <img src="docs/marker_1.jpg" width="290">
+    </td>
+  </tr>
+</table>
 
 ### 📊 사용한 ROS2 기능
 | No. | 기능명 | 설명 |
