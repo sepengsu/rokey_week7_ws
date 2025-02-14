@@ -68,23 +68,25 @@
 <table>
   <tr>
     <td align="center">
-      <img src="docs/acuco.png" width="700">
+      <img src="docs/acuco.png" width="500">
       <br><b>Pose estimation using AcUco Marker</b></br>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="docs/gui.png" width="700">
+      <img src="docs/gui.png" width="500">
       <br><b>System</b></br>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="docs/val.jpg" width="200">
-      <br><b>Yolo model validation</b></br>
+      <img src="docs/dit.png" width="500">
+      <br><b>Simulation using Unity</b></br>
     </td>
+  </tr>
+  <tr> 
     <td align="center">
-      <img src="docs/point_error.png" width="200">
+      <img src="docs/point_error.png" width="500">
       <br><b>Error in Centering</b></br>
     </td>
   </tr>  
